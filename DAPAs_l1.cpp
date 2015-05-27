@@ -125,20 +125,13 @@ Point random_point(float limit) {
 
 int main(int argc, char *argv[]) {
 
-    int m = 100;
-
-    // generate random inputs points.
-    m = 80;
-    //float *points1 = new float[m];
-    int q = 10;
-    //float *points2 = new float[q];
-
+    Point *points1 = NULL;
+    Point *points2 = NULL;
+		int *Hull = NULL;
 
     int myid, numprocs, i = 0;
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &numprocs);
-    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
-
 
     /* create a type for struct Point */
     const int nitems = 2;
@@ -150,63 +143,68 @@ int main(int argc, char *argv[]) {
     offsets[0] = offsetof(Point, y);
     MPI_Type_create_struct(nitems, blocklengths, offsets, types, &mpi_point_type);
     MPI_Type_commit(&mpi_point_type);
-
-    Point *points1 = new Point[40];
-    Point *points2 = new Point[10];
-
-
-    printf("Who am i = %d\n", myid);
-
+    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
+//    printf("Who am i = %d\n", myid);
+int m = 40;
+    Point *send = NULL;
     if (myid == 0) {
+	    int m = 40;
+				points1 = new Point[m];
+
+				send=new Point[m];
         for (i = 0; i < m; ++i) {
-            points1[i] = rand_coord(100);
+//            points1[i] = random_point(100);
+					send[i].x = i*2;
+					send[i].y = i*3;
         }
 
         /* Print out own portion of the scattered array */
         printf("Root has elements");
         for (i = 0; i < m; i++) {
-            printf(" %.0f", points1[i]);
-            if (i % 19 == 0) printf("\n");
+	        cout << "(" << points1[i].x << ", " << points1[i].y << ") ";
+          if (i % 9 == 0) cout <<"\n";
         }
-        printf("\n");
+        cout <<"\n";
 
     }
 
-
-
-    MPI_Scatter(points1, q, MPI_FLOAT, points2, q, mpi_point_type, 0, MPI_COMM_WORLD);
-
-    int pointsLength = 10;
-    Point *myPoints = new Point[pointsLength];
-    int *Hull = new int[pointsLength];
-    for (i = 0; i < pointsLength; i++) {
-        myPoints[i].x = points2[i * 2];
-        myPoints[i].y = points2[i * 2 + 1];
-    }
-
+    int q = 10;
+    Point *recv=new Point[q];
+		points2 = new Point[q];
     printf("Process %d has elements:", myid);
-    for (i = 0; i < pointsLength; i++) {
-        //      printf(" %.0f", points2[i]);
+    for (i = 0; i < q; i++) {
         cout << "(" << points2[i].x << ", " << points2[i].y << ") ";
     }
     printf("\n");
+	
+		MPI_Scatter(send, q, mpi_point_type, recv, q, mpi_point_type, 0,MPI_COMM_WORLD);
 
+
+//    MPI_Scatter(points1, q, mpi_point_type, points2, q, mpi_point_type, 0, MPI_COMM_WORLD);
+
+/*    printf("Process %d has elements:", myid);
+    for (i = 0; i < q; i++) {
+        cout << "(" << points2[i].x << ", " << points2[i].y << ") ";
+    }
+    printf("\n");
+*/		
+		Hull = new int[q];
     double t1 = gettime();
-    convexHull(points2, pointsLength, Hull);
+//    convexHull(points2, q, Hull);
     double t2 = gettime();
     double t3 = t2 - t1;
 
     // Print Result
-    printf("Process %d found Hull( elements):", myid);
-    for (int i = 0; i < pointsLength; i++) {
+/*    printf("Process %d found Hull( elements):", myid);
+    for (int i = 0; i < q; i++) {
         if (Hull[i] != -1)
             cout << "(" << points2[Hull[i]].x << ", " << points2[Hull[i]].y << ") ";
     }
     printf("\n");
     printf("\n Run Time = %.6lf\n", t3);
+*/
 
-
-
+    MPI_Type_free(&mpi_point_type);
     MPI_Finalize();
     return 0;
 }
