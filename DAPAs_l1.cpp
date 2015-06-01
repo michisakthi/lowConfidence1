@@ -112,6 +112,47 @@ void convexHull(Point points[], int n, int *Hull) {
 	}
 */
 }
+
+bool comparePoints(Point M, Point N)
+{
+	if(M.x == N.x && M.y == N.y) return true;
+	else return false;
+}	
+
+void leftMost(void *M, void *N, int *len, MPI_Datatype *dptr)
+{
+	Point *m = (Point *)M;
+	Point *n = (Point *)N;
+	if(m->x < n->x )
+	{ 
+		n->x = m->x;
+		n->y = m->y;
+	}
+}
+
+
+
+Point FindNextHullPoint(Point p, Point points[], int n) {
+	int q = 0; // index of the first point in the points array
+	// Search for a point 'q' such that orientation(p, q, r(j)) is
+	// clockwise for all points 'j'
+
+	if (comparePoints(p, points[q]))	// if P and Q become same point move the Q to the next point in the array(Assumption 1)
+	{
+		q = q + 1;
+	}
+	for (int j = 1; j < n; j++){
+		if (comparePoints(p, points[j]))		// If P and R(j) become same point then skip that point.
+			continue;
+
+		if (orientation(p, points[q], points[j]) == TURN_LEFT)
+		{
+			q = j;
+		}
+	}
+	return points[q];
+}
+
 // Driver program to test above functions
 
 float rand_coord(float limit) {
@@ -122,6 +163,7 @@ float rand_coord(float limit) {
 Point random_point(float limit) {
   return (Point) { rand_coord(limit), rand_coord(limit) };
 }
+
 
 int main(int argc, char *argv[]) {
 
@@ -150,14 +192,17 @@ int main(int argc, char *argv[]) {
 	offsets[1] = offsetof(Point, y);
 	MPI_Type_create_struct(nitems, blocklengths, offsets, types, &mpi_point_type);
 	MPI_Type_commit(&mpi_point_type);
+	MPI_Op MPI_Leftmost;
+	MPI_Op_create( leftMost, true, &MPI_Leftmost );
 
 	Point *send = NULL;
+	Point *Hull = NULL;
+	Point *sendQ = NULL;
+	Point *recvQ = NULL;
 
 	MPI_Comm_rank(MPI_COMM_WORLD, &myid);
 
-
-//	double t1 = gettime();
-
+	double t1 = gettime();
 	if (myid == 0) {
 //			int 
 			send=new Point[m];
@@ -173,36 +218,86 @@ int main(int argc, char *argv[]) {
 			}
 			printf("\n");
 		}
+		Hull = new Point[m];
 	}
-	int q = 10;
-	q = m/numprocs;
-	Point *recv=new Point[q];
+	int n = 10;
+	n = m/numprocs;
+	Point *recv=new Point[n];
 
-	MPI_Scatter(send, q, mpi_point_type, recv, q, mpi_point_type, 0,MPI_COMM_WORLD);
+	MPI_Scatter(send, n, mpi_point_type, recv, n, mpi_point_type, 0,MPI_COMM_WORLD);
 
 	if(debug){
 		printf("Process %d has elements:", myid);
-		for (i=0; i<q; i++) {
+		for (i=0; i<n; i++) {
 			printf(" (%.0f, %.0f)", recv[i].x, recv[i].y);
 		}
 		printf("\n");
 	}
 
-	int *Hull = new int[q];
-	double t1 = gettime();
-	convexHull(recv, q, Hull);
-	double t2 = gettime();
-	double t3 = t2 - t1;
+//	int *Hull = new int[n];
+//	if (n < 3)
+//		return;
 
-	if(debug){
+	// Initialize Result
+//	int *Hull = new int[n];
+	//int next[n];
+//	for (int k = 0; k < n; k++)
+//		Hull[k] = -1;
+
+	// Find the local leftmost point
+	int l = 0;
+	for (int k = 0; k < n; k++){
+		if (recv[k].x < recv[l].x)
+			l = k;
+	}
+	printf("I'm %d and i have (%f, %f) \n", myid, recv[l].x, recv[l].y);	
+	MPI_Barrier( MPI_COMM_WORLD ) ;
+	Point llm = recv[l], glm;
+	glm.x = 2.4;
+	glm.y = 5.4;
+	MPI_Allreduce(&llm, &glm, 1, mpi_point_type, MPI_Leftmost, MPI_COMM_WORLD);
+	printf("I'm %d and i have (%f, %f) \n", myid, glm.x, glm.y);
+	MPI_Barrier( MPI_COMM_WORLD ) ;
+
+	// Start from leftmost point, keep moving counterclockwise
+	// until reach the start point again
+	Point q = glm;
+	i = 0;
+	sendQ = new Point[numprocs];
+	recvQ = new Point[numprocs];
+
+	do {
+		if(myid == 0){
+			Hull[i] = q;
+		}
+		Point p = q;
+		q = FindNextHullPoint(p, recv, n); 
+		for (int k = 0; k < numprocs; k++) sendQ[k] = q;
+		printf("\n I'm %d and i've got (%f, %f)\n", myid, q.x, q.y);	
+		MPI_Barrier( MPI_COMM_WORLD ) ;
+		MPI_Alltoall(sendQ, 1, mpi_point_type, recvQ, 1, mpi_point_type, MPI_COMM_WORLD);
+		if(myid == 0){
+			for (int k = 0; k < numprocs; k++) 
+				printf("\n I'm %d and i've got (%f, %f)\n", myid, recvQ[k].x, recvQ[k].y);	
+		}
+		q = FindNextHullPoint(p, recvQ, numprocs); 
+		i = i + 1;
+	//printf("\n I'm %d and i'm running %d time\n", myid, i);	
+	} while((i<n) && !comparePoints(q, glm));
+//	printf("\n I'm %d and i've got (%f, %f)\n", myid, q.x, q.y);	
+	if(myid == 0){
 		// Print Result
 		printf("Process %d found Hull( elements):", myid);
-		for (int i = 0; i < q; i++) {
-				if (Hull[i] != -1)
-				    cout << "(" << recv[Hull[i]].x << ", " << recv[Hull[i]].y << ") ";
-		}      
-		printf("\n");
+		for (int i = 0; i < m; i++) {
+				    cout << "(" << Hull[i].x << ", " << Hull[i].y << ") ";		      
+			printf("\n");
+		}
 	}
+
+
+	MPI_Barrier( MPI_COMM_WORLD ) ;
+	double t2 = gettime();
+	double t3 = t2 - t1;
 	printf("\n Run Time = %.6lf\n", t3);
 	MPI_Type_free(&mpi_point_type);
 	MPI_Finalize();
