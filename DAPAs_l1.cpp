@@ -15,7 +15,7 @@
 #include <mpi/mpi.h>
 #include <stddef.h>
 using namespace std;
-#define debug 0
+#define debug 1
 /*
  * 
  */
@@ -167,13 +167,13 @@ Point random_point(float limit) {
 
 int main(int argc, char *argv[]) {
 
-	int myid, numprocs, i = 0, m = 40;
+	int myid, numprocs, i = 0, m = 20;
 
  if (argc >= 2) {
 	  
   m = atoi(argv[1]);
-    if (m < 40)
-      m = 40;
+    if (m < 20)
+      m = 20;
   }else{
 		printf("you forgot total number of points!");
 		return 0;
@@ -199,6 +199,7 @@ int main(int argc, char *argv[]) {
 	Point *Hull = NULL;
 	Point *sendQ = NULL;
 	Point *recvQ = NULL;
+	int *scounts = NULL, *displs = NULL;
 
 	MPI_Comm_rank(MPI_COMM_WORLD, &myid);
 
@@ -222,9 +223,39 @@ int main(int argc, char *argv[]) {
 	}
 	int n = 10;
 	n = m/numprocs;
+	int	diff = m%numprocs;
+	if(diff && myid < diff){
+		n = (int)ceil((double)m/(double)numprocs);
+	}
 	Point *recv=new Point[n];
 
-	MPI_Scatter(send, n, mpi_point_type, recv, n, mpi_point_type, 0,MPI_COMM_WORLD);
+	displs = new int[numprocs];
+  scounts = new int[numprocs];
+	int offset = 0;
+  for (i=0; i<numprocs; ++i) { 
+		displs[i] = offset; 
+    scounts[i] =  m/numprocs;
+		if(diff && i < diff){
+			scounts[i] = (int)ceil((double)m/(double)numprocs);
+		}
+		offset += scounts[i];
+  } 
+
+	if(debug && myid == 0){
+		printf("%d has diff %d and scounts:", myid, diff);
+		for (i=0; i<numprocs; i++) {
+//			printf(", %d", scounts[i]);
+//	    tmp =  m/numprocs;
+			if(diff && i < diff)	printf(", %d", (int)ceil((double)m/(double)numprocs));
+			else	printf(", %d", m/numprocs);
+
+		}
+		printf("\n");
+	}
+
+  MPI_Scatterv( send, scounts, displs, mpi_point_type, recv, n, mpi_point_type, 0, MPI_COMM_WORLD);
+
+//	MPI_Scatter(send, n, mpi_point_type, recv, n, mpi_point_type, 0,MPI_COMM_WORLD);
 
 	if(debug){
 		printf("Process %d has elements:", myid);
@@ -233,16 +264,6 @@ int main(int argc, char *argv[]) {
 		}
 		printf("\n");
 	}
-
-//	int *Hull = new int[n];
-//	if (n < 3)
-//		return;
-
-	// Initialize Result
-//	int *Hull = new int[n];
-	//int next[n];
-//	for (int k = 0; k < n; k++)
-//		Hull[k] = -1;
 
 	// Find the local leftmost point
 	int l = 0;
@@ -284,13 +305,19 @@ int main(int argc, char *argv[]) {
 		i = i + 1;
 	//printf("\n I'm %d and i'm running %d time\n", myid, i);	
 	} while((i<n) && !comparePoints(q, glm));
+	if(myid == 0){
+			Hull[i] = q;
+	}
 //	printf("\n I'm %d and i've got (%f, %f)\n", myid, q.x, q.y);	
 	if(myid == 0){
 		// Print Result
+		Point zero = {0,0};
 		printf("Process %d found Hull( elements):", myid);
 		for (int i = 0; i < m; i++) {
-				    cout << "(" << Hull[i].x << ", " << Hull[i].y << ") ";		      
-			printf("\n");
+			if(!comparePoints(zero, Hull[i])){
+				cout << "(" << Hull[i].x << ", " << Hull[i].y << ") ";		      
+				printf("\n");
+			}
 		}
 	}
 
